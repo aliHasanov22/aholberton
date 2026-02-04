@@ -1,24 +1,46 @@
 #!/usr/bin/python3
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta, time
-import math # <--- NEW: Needed for distance calculation
+import math
 from sqlalchemy import func
 
 app = Flask(__name__)
+# Secret key is required for secure sessions
+app.config['SECRET_KEY'] = 'holberton-secret-key-999'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///planner.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# --- 📍 CONFIGURATION: SET YOUR CAMPUS LOCATION HERE ---
-# Example: Holberton School (Tulsa, OK coordinates as placeholder)
-# Go to Google Maps, right-click your campus, and copy the numbers.
+# --- LOGIN MANAGER CONFIGURATION ---
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# --- 📍 CONFIGURATION ---
 CAMPUS_LAT = 40.40663934042372
-CAMPUS_LON =  49.848206791133954
+CAMPUS_LON = 49.848206791133954
 MAX_DISTANCE_METERS = 50
+
 # --- MODELS ---
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(120), nullable=False)
+    tasks = db.relationship('Task', backref='owner', lazy=True)
+    attendance = db.relationship('Attendance', backref='owner', lazy=True)
+    study_sessions = db.relationship('StudySession', backref='owner', lazy=True)
+    summaries = db.relationship('WeeklyTaskSummary', backref='owner', lazy=True)
+
 class Task(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     title = db.Column(db.String(100), nullable=False)
     priority = db.Column(db.String(20), default='Medium')
     status = db.Column(db.String(20), default='Pending')
@@ -28,16 +50,13 @@ class Task(db.Model):
 
     def to_dict(self):
         return {
-            'id': self.id,
-            'title': self.title,
-            'priority': self.priority,
-            'status': self.status,
-            'start_date': self.start_date,
-            'due_date': self.due_date
+            'id': self.id, 'title': self.title, 'priority': self.priority,
+            'status': self.status, 'start_date': self.start_date, 'due_date': self.due_date
         }
 
 class StudySession(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     subject = db.Column(db.String(50), nullable=False)
     duration_minutes = db.Column(db.Integer, nullable=False)
     date = db.Column(db.DateTime, default=datetime.utcnow)
@@ -45,25 +64,24 @@ class StudySession(db.Model):
     def to_dict(self):
         return { 'subject': self.subject, 'duration': self.duration_minutes }
 
-# NEW TABLE: Attendance
 class Attendance(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     date = db.Column(db.Date, default=datetime.utcnow)
-    entry_time = db.Column(db.String(10), nullable=False) # Store as "09:30"
-    exit_time = db.Column(db.String(10), nullable=False)  # Store as "17:00"
-    valid_hours = db.Column(db.Float, nullable=False)     # Calculated hours (8am-6pm)
+    entry_time = db.Column(db.String(10), nullable=False) 
+    exit_time = db.Column(db.String(10), nullable=False)  
+    valid_hours = db.Column(db.Float, nullable=False)     
 
     def to_dict(self):
         return {
             'date': self.date.strftime('%Y-%m-%d'),
-            'entry': self.entry_time,
-            'exit': self.exit_time,
-            'hours': self.valid_hours
+            'entry': self.entry_time, 'exit': self.exit_time, 'hours': self.valid_hours
         }
 
 class WeeklyTaskSummary(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    week_start = db.Column(db.Date, nullable=False, unique=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    week_start = db.Column(db.Date, nullable=False)
     total_tasks = db.Column(db.Integer, nullable=False, default=0)
     completed_tasks = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -71,59 +89,38 @@ class WeeklyTaskSummary(db.Model):
     def to_dict(self):
         return {
             'week_start': self.week_start.strftime('%Y-%m-%d'),
-            'total_tasks': self.total_tasks,
-            'completed_tasks': self.completed_tasks
+            'total_tasks': self.total_tasks, 'completed_tasks': self.completed_tasks
         }
 
-# --- HELPER: Calculate 8am-6pm Hours ---
+# --- HELPERS ---
 def get_distance_meters(lat1, lon1, lat2, lon2):
-    R = 6371000  # Radius of Earth in meters
-    phi1 = math.radians(lat1)
-    phi2 = math.radians(lat2)
-    delta_phi = math.radians(lat2 - lat1)
-    delta_lambda = math.radians(lon2 - lon1)
-
-    a = math.sin(delta_phi / 2)**2 + \
-        math.cos(phi1) * math.cos(phi2) * \
-        math.sin(delta_lambda / 2)**2
+    R = 6371000  
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    delta_phi, delta_lambda = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    a = math.sin(delta_phi / 2)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
     return R * c
     
 def calculate_valid_hours(entry_str, exit_str):
-    # Limits
-    START_LIMIT = time(8, 0)  # 08:00 AM
-    END_LIMIT = time(18, 0)   # 06:00 PM
-
-    # Parse inputs (e.g., "09:30")
+    START_LIMIT, END_LIMIT = time(8, 0), time(18, 0)
     fmt = '%H:%M'
-    t_entry = datetime.strptime(entry_str, fmt).time()
-    t_exit = datetime.strptime(exit_str, fmt).time()
-
-    # Clamp Entry Time (Must be at least 8:00)
-    effective_entry = max(t_entry, START_LIMIT)
-    
-    # Clamp Exit Time (Must be at most 18:00)
-    effective_exit = min(t_exit, END_LIMIT)
-
-    # Calculate difference
-    if effective_entry >= effective_exit:
-        return 0.0 # Invalid duration (e.g. entered at 7pm)
-
-    # Convert to datetime to do subtraction
-    dummy_date = datetime(2000, 1, 1)
-    dt_entry = datetime.combine(dummy_date, effective_entry)
-    dt_exit = datetime.combine(dummy_date, effective_exit)
-    
-    duration = dt_exit - dt_entry
-    return round(duration.total_seconds() / 3600, 2) # Return hours
+    try:
+        t_entry = datetime.strptime(entry_str, fmt).time()
+        t_exit = datetime.strptime(exit_str, fmt).time()
+        effective_entry, effective_exit = max(t_entry, START_LIMIT), min(t_exit, END_LIMIT)
+        if effective_entry >= effective_exit: return 0.0
+        dt_entry = datetime.combine(datetime.min, effective_entry)
+        dt_exit = datetime.combine(datetime.min, effective_exit)
+        return round((dt_exit - dt_entry).total_seconds() / 3600, 2)
+    except: return 0.0
 
 def get_week_start(date_value):
     return date_value - timedelta(days=date_value.weekday())
 
-def compute_weekly_task_summary(week_start):
+def compute_weekly_task_summary(week_start, user_id):
     week_end = week_start + timedelta(days=7)
     tasks = Task.query.filter(
+        Task.user_id == user_id,
         Task.created_at >= datetime.combine(week_start, time.min),
         Task.created_at < datetime.combine(week_end, time.min)
     ).all()
@@ -131,191 +128,146 @@ def compute_weekly_task_summary(week_start):
     completed_tasks = sum(1 for task in tasks if task.status == 'Completed')
     return total_tasks, completed_tasks
 
-def ensure_weekly_summaries():
+def ensure_weekly_summaries(user_id):
     today = datetime.utcnow().date()
     current_week_start = get_week_start(today)
-    latest_summary = WeeklyTaskSummary.query.order_by(WeeklyTaskSummary.week_start.desc()).first()
+    latest_summary = WeeklyTaskSummary.query.filter_by(user_id=user_id).order_by(WeeklyTaskSummary.week_start.desc()).first()
 
     if latest_summary is None:
-        previous_week_start = current_week_start - timedelta(days=7)
-        total_tasks, completed_tasks = compute_weekly_task_summary(previous_week_start)
-        db.session.add(WeeklyTaskSummary(
-            week_start=previous_week_start,
-            total_tasks=total_tasks,
-            completed_tasks=completed_tasks
-        ))
+        prev_start = current_week_start - timedelta(days=7)
+        total, completed = compute_weekly_task_summary(prev_start, user_id)
+        db.session.add(WeeklyTaskSummary(user_id=user_id, week_start=prev_start, total_tasks=total, completed_tasks=completed))
         db.session.commit()
         return
 
-    next_week_start = latest_summary.week_start + timedelta(days=7)
-    if next_week_start >= current_week_start:
-        return
-
-    week_cursor = next_week_start
+    week_cursor = latest_summary.week_start + timedelta(days=7)
     while week_cursor < current_week_start:
-        total_tasks, completed_tasks = compute_weekly_task_summary(week_cursor)
-        db.session.add(WeeklyTaskSummary(
-            week_start=week_cursor,
-            total_tasks=total_tasks,
-            completed_tasks=completed_tasks
-        ))
+        total, completed = compute_weekly_task_summary(week_cursor, user_id)
+        db.session.add(WeeklyTaskSummary(user_id=user_id, week_start=week_cursor, total_tasks=total, completed_tasks=completed))
         week_cursor += timedelta(days=7)
     db.session.commit()
 
-# --- ROUTES ---
+# --- AUTH ROUTES ---
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        user = User.query.filter_by(username=request.form.get('username')).first()
+        if user and check_password_hash(user.password_hash, request.form.get('password')):
+            login_user(user)
+            return redirect(url_for('index'))
+        flash('Login failed. Check credentials.')
+    return render_template('login.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        hashed_pw = generate_password_hash(request.form.get('password'))
+        new_user = User(username=request.form.get('username'), password_hash=hashed_pw)
+        db.session.add(new_user)
+        db.session.commit()
+        return redirect(url_for('login'))
+    return render_template('register.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
+
+# --- APP ROUTES ---
 @app.route('/')
+@login_required
 def index():
     return render_template('index.html')
 
-# Task Routes
 @app.route('/api/tasks', methods=['GET'])
+@login_required
 def get_tasks():
-    tasks = Task.query.order_by(Task.created_at.desc()).all()
+    tasks = Task.query.filter_by(user_id=current_user.id).order_by(Task.created_at.desc()).all()
     return jsonify([task.to_dict() for task in tasks])
 
 @app.route('/api/tasks', methods=['POST'])
+@login_required
 def add_task():
     data = request.json
     new_task = Task(
-        title=data['title'], 
+        user_id=current_user.id, title=data['title'], 
         priority=data.get('priority', 'Medium'),
-        start_date=data.get('start_date'),
-        due_date=data.get('due_date')
+        start_date=data.get('start_date'), due_date=data.get('due_date')
     )
     db.session.add(new_task)
     db.session.commit()
     return jsonify(new_task.to_dict()), 201
 
 @app.route('/api/tasks/<int:id>/toggle', methods=['PUT'])
+@login_required
 def toggle_task(id):
-    task = Task.query.get_or_404(id)
+    task = Task.query.filter_by(id=id, user_id=current_user.id).first_or_404()
     task.status = 'Completed' if task.status == 'Pending' else 'Pending'
     db.session.commit()
     return jsonify(task.to_dict())
 
-@app.route('/api/stats/tasks', methods=['GET'])
-def task_stats():
-    # Counts tasks by status
-    stats = db.session.query(Task.status, func.count(Task.id)).group_by(Task.status).all()
-    return jsonify(dict(stats))
-
 @app.route('/api/tasks/weekly-summary', methods=['GET'])
+@login_required
 def task_weekly_summary():
-    ensure_weekly_summaries()
-    summaries = WeeklyTaskSummary.query.order_by(WeeklyTaskSummary.week_start.asc()).all()
-
+    ensure_weekly_summaries(current_user.id)
+    summaries = WeeklyTaskSummary.query.filter_by(user_id=current_user.id).order_by(WeeklyTaskSummary.week_start.asc()).all()
     today = datetime.utcnow().date()
-    current_week_start = get_week_start(today)
-    total_tasks, completed_tasks = compute_weekly_task_summary(current_week_start)
-
-    response = [summary.to_dict() for summary in summaries]
-
-    if not summaries or summaries[-1].week_start != current_week_start:
-        response.append({
-            'week_start': current_week_start.strftime('%Y-%m-%d'),
-            'total_tasks': total_tasks,
-            'completed_tasks': completed_tasks
-        })
-
+    curr_start = get_week_start(today)
+    total, completed = compute_weekly_task_summary(curr_start, current_user.id)
+    response = [s.to_dict() for s in summaries]
+    if not summaries or summaries[-1].week_start != curr_start:
+        response.append({'week_start': curr_start.strftime('%Y-%m-%d'), 'total_tasks': total, 'completed_tasks': completed})
     return jsonify(response)
 
 @app.route('/api/tasks/<int:id>', methods=['DELETE'])
+@login_required
 def delete_task(id):
-    task = Task.query.get_or_404(id)
+    task = Task.query.filter_by(id=id, user_id=current_user.id).first_or_404()
     db.session.delete(task)
     db.session.commit()
     return jsonify({'message': 'Deleted'})
 
-# Study Routes
 @app.route('/api/study', methods=['POST'])
+@login_required
 def log_study_session():
     data = request.json
-    new_session = StudySession(subject=data['subject'], duration_minutes=data['duration'])
+    new_session = StudySession(user_id=current_user.id, subject=data['subject'], duration_minutes=data['duration'])
     db.session.add(new_session)
     db.session.commit()
     return jsonify(new_session.to_dict()), 201
 
-# --- NEW ROUTE: GPS CHECK ---
 @app.route('/api/attendance/check-location', methods=['POST'])
+@login_required
 def check_location():
     data = request.json
-    user_lat = data.get('lat')
-    user_lon = data.get('lon')
-
-    if user_lat is None or user_lon is None:
-        return jsonify({'error': 'No coordinates provided'}), 400
-
-    # Calculate distance
-    dist = get_distance_meters(user_lat, user_lon, CAMPUS_LAT, CAMPUS_LON)
-    
+    dist = get_distance_meters(data.get('lat'), data.get('lon'), CAMPUS_LAT, CAMPUS_LON)
     if dist <= MAX_DISTANCE_METERS:
-        # User is ON CAMPUS
-        now_time = datetime.now().strftime('%H:%M')
-        return jsonify({
-            'status': 'allowed', 
-            'distance': round(dist, 2),
-            'time': now_time,
-            'message': f'✅ Access Granted! You are {int(dist)}m from campus.'
-        })
-    else:
-        # User is TOO FAR
-        return jsonify({
-            'status': 'denied', 
-            'distance': round(dist, 2),
-            'message': f'❌ Too far! You are {int(dist)}m away. Go to campus.'
-        }), 403
-
-# NEW: Attendance Routes
-# --- UPDATED ATTENDANCE ROUTES ---
+        return jsonify({'status': 'allowed', 'distance': round(dist, 2), 'time': datetime.now().strftime('%H:%M'), 'message': f'✅ Access Granted!'})
+    return jsonify({'status': 'denied', 'message': f'❌ Too far! ({int(dist)}m)'}), 403
 
 @app.route('/api/attendance', methods=['GET'])
+@login_required
 def get_attendance():
-    # Get logs for the current week (Monday to Sunday)
     today = datetime.utcnow().date()
     start_of_week = today - timedelta(days=today.weekday())
-    
-    # Sort by date descending (newest first)
-    logs = Attendance.query.filter(Attendance.date >= start_of_week)\
-                           .order_by(Attendance.date.desc(), Attendance.entry_time.desc())\
-                           .all()
-    
-    total_hours = sum(log.valid_hours for log in logs)
-    
-    return jsonify({
-        'logs': [log.to_dict() for log in logs],
-        'total_hours': round(total_hours, 2)
-    })
+    logs = Attendance.query.filter(Attendance.user_id == current_user.id, Attendance.date >= start_of_week)\
+                           .order_by(Attendance.date.desc()).all()
+    return jsonify({'logs': [log.to_dict() for log in logs], 'total_hours': round(sum(l.valid_hours for l in logs), 2)})
 
 @app.route('/api/attendance', methods=['POST'])
+@login_required
 def add_attendance():
     data = request.json
-    
-    # 1. Parse the date provided by the user
-    log_date_str = data.get('date') # Format YYYY-MM-DD
-    if log_date_str:
-        log_date = datetime.strptime(log_date_str, '%Y-%m-%d').date()
-    else:
-        log_date = datetime.utcnow().date()
-
-    # 2. CHECK: Is it a weekday? (0=Mon, 4=Fri, 5=Sat, 6=Sun)
-    if log_date.weekday() > 4:
-        return jsonify({'error': 'Weekends do not count towards mandatory hours!'}), 400
-
-    # 3. Calculate hours (8am - 6pm logic)
+    log_date = datetime.strptime(data['date'], '%Y-%m-%d').date() if data.get('date') else datetime.utcnow().date()
+    if log_date.weekday() > 4: return jsonify({'error': 'Weekends not allowed'}), 400
     hours = calculate_valid_hours(data['entry'], data['exit'])
-    
-    new_log = Attendance(
-        date=log_date,
-        entry_time=data['entry'], 
-        exit_time=data['exit'], 
-        valid_hours=hours
-    )
+    new_log = Attendance(user_id=current_user.id, date=log_date, entry_time=data['entry'], exit_time=data['exit'], valid_hours=hours)
     db.session.add(new_log)
     db.session.commit()
     return jsonify(new_log.to_dict())
 
-
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-        app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)
