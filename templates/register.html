@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #121212; display: flex; align-items: center; height: 100vh; font-family: 'Roboto Mono', monospace; }
+        .card { border: 1px solid #0dcaf0; width: 100%; max-width: 400px; margin: auto; }
+    </style>
+</head>
+<body>
+    <div class="card p-4">
+        <h2 class="text-center text-info mb-4">REGISTER</h2>
+        <form method="POST">
+            <input type="text" name="username" class="form-control mb-3" placeholder="Create Username" required>
+            <input type="password" name="password" class="form-control mb-3" placeholder="Create Password" required>
+            <button class="btn btn-info w-100 text-white">Sign Up</button>
+        </form>
+        <div class="text-center mt-3">
+            <a href="/login" class="text-secondary small">Already have an account? Login</a>
+        </div>
+    </div>
+</body>
+</html>
