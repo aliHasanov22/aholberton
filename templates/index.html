@@ -18,7 +18,7 @@
         
             <button @click="toggleTheme" class="theme-toggle" title="Toggle Light/Dark Mode">
                 <i class="fas" :class="isDarkMode ? 'fa-sun' : 'fa-moon'"></i>
-                <span class="small fw-bold ms-1">{{ isDarkMode ? 'LIGHT' : 'DARK' }}</span>
+                <span class="small fw-bold ms-1" v-text="isDarkMode ? 'LIGHT' : 'DARK'"></span>
             </button>
         </div>
     </div>
