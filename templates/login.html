@@ -1,0 +1,37 @@
+<div class="login-card">
+    <div class="text-center mb-4">
+        <h2 class="brand-text">HOLBERTON <span class="text-white">PLANNER</span></h2>
+        <p class="text-muted small">Enter your student credentials to continue</p>
+    </div>
+
+    <form method="POST" action="{{ url_for('login') }}">
+        <div class="mb-3">
+            <label class="form-label small fw-bold">Holberton Email</label>
+            <div class="input-group">
+                <span class="input-group-text bg-dark border-secondary"><i class="fas fa-user text-holberton"></i></span>
+                <input type="email" name="email" class="form-control border-secondary" 
+                       placeholder="12345@holbertonstudents.com" required>
+            </div>
+            <div class="form-text mt-1" style="font-size: 0.7rem;">Use your official student ID email.</div>
+        </div>
+
+        <div class="mb-4">
+            <label class="form-label small fw-bold">Password</label>
+            <div class="input-group">
+                <span class="input-group-text bg-dark border-secondary"><i class="fas fa-lock text-holberton"></i></span>
+                <input type="password" name="password" class="form-control border-secondary" 
+                       placeholder="••••••••" required>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-holberton w-100 py-2 shadow-sm">
+            SIGN IN <i class="fas fa-sign-in-alt ms-2"></i>
+        </button>
+    </form>
+    
+    <div class="text-center mt-4">
+        <a href="{{ url_for('signup') }}" class="text-white-50 small text-decoration-none">
+            Don't have an account? <span class="text-holberton fw-bold">Create one</span>
+        </a>
+    </div>
+</div>
