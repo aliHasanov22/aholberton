@@ -6,6 +6,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta, time
 import math
 from sqlalchemy import func
+from flask import abort
+from flask_login import current_user
 
 app = Flask(__name__)
 # Secret key is required for secure sessions
@@ -33,6 +35,7 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(120), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False)#new
     tasks = db.relationship('Task', backref='owner', lazy=True)
     attendance = db.relationship('Attendance', backref='owner', lazy=True)
     study_sessions = db.relationship('StudySession', backref='owner', lazy=True)
