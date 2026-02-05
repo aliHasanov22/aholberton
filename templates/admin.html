@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <title>Holberton | Admin Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --hb-red: #e00034; --bg: #0a0a0a; --card: #151515; --border: #2d2d2d; }
+        body { background-color: var(--bg); font-family: 'Roboto Mono', monospace; color: #e0e0e0; }
+        .card { background-color: var(--card); border: 1px solid var(--border); border-radius: 0; }
+        .stat-card { border-top: 3px solid var(--hb-red); }
+        .search-bar { background: #000 !important; border: 1px solid var(--border) !important; color: #fff !important; border-radius: 0; }
+        .table thead th { border-bottom: 2px solid var(--border); color: #888; text-transform: uppercase; font-size: 0.75rem; }
+        .row-fail { border-left: 4px solid #ff4d4d !important; }
+        .row-warning { border-left: 4px solid #ffa500 !important; }
+        .row-pass { border-left: 4px solid #2ecc71 !important; }
+        .progress { background-color: #222; border-radius: 0; height: 8px; }
+    </style>
+</head>
+<body>
+
+<div id="adminApp" class="container py-5">
+    <div class="d-flex justify-content-between align-items-end mb-4 border-bottom border-danger pb-3">
+        <div>
+            <h2 class="fw-bold m-0"><i class="fas fa-shield-halved text-holberton me-2"></i>COHORT_MONITOR</h2>
+            <small class="text-secondary text-uppercase">Campus Security & Attendance Audit</small>
+        </div>
+        <a href="/" class="btn btn-outline-danger btn-sm">TERMINATE_SESSION</a>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card p-3 stat-card text-center">
+                <small class="text-secondary">TOTAL_STUDENTS</small>
+                <h3 class="fw-bold m-0">{{ total_students }}</h3>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card p-3 stat-card text-center">
+                <small class="text-secondary">UNDER_15H_QUOTA</small>
+                <h3 class="fw-bold m-0 text-danger">{{ under_quota }}</h3>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card p-3 stat-card text-center">
+                <small class="text-secondary">AVG_WEEKLY_HRS</small>
+                <h3 class="fw-bold m-0 text-info">{{ avg_hours }}h</h3>
+            </div>
+        </div>
+    </div>
+
+    <div class="card p-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h6 class="m-0 fw-bold"><i class="fas fa-list me-2"></i>STUDENT_DATABASE</h6>
+            <input type="text" id="studentSearch" class="form-control search-bar w-25" placeholder="SEARCH_USER...">
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-dark table-hover mb-0" id="studentTable">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Weekly Hours</th>
+                        <th>Status</th>
+                        <th class="text-end">Progress (15h)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in students %}
+                    <tr class="{% if s.hours < 10 %}row-fail{% elif s.hours < 15 %}row-warning{% else %}row-pass{% endif %}">
+                        <td class="fw-bold">{{ s.username }}</td>
+                        <td>{{ s.hours }}h <small class="text-muted">({{ s.logs_count }} logs)</small></td>
+                        <td>
+                            {% if s.hours < 10 %}
+                                <span class="text-danger small">● CRITICAL</span>
+                            {% elif s.hours < 15 %}
+                                <span class="text-warning small">● WARNING</span>
+                            {% else %}
+                                <span class="text-success small">● SECURE</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <div class="d-flex align-items-center justify-content-end gap-2">
+                                <div class="progress w-50">
+                                    <div class="progress-bar {% if s.hours < 10 %}bg-danger{% elif s.hours < 15 %}bg-warning{% else %}bg-success{% endif %}" 
+                                         style="width: {{ (s.hours / 15 * 100)|round|int if s.hours < 15 else 100 }}%"></div>
+                                </div>
+                                <small class="fw-bold">{{ (s.hours / 15 * 100)|round|int }}%</small>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Simple User-Friendly Search Logic
+    document.getElementById('studentSearch').addEventListener('keyup', function() {
+        let filter = this.value.toUpperCase();
+        let rows = document.querySelector("#studentTable tbody").rows;
+        
+        for (let i = 0; i < rows.length; i++) {
+            let firstCol = rows[i].cells[0].textContent.toUpperCase();
+            rows[i].style.display = firstCol.indexOf(filter) > -1 ? "" : "none";
+        }
+    });
+</script>
+
+</body>
+</html>
