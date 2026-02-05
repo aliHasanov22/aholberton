@@ -246,6 +246,46 @@ def check_location():
         return jsonify({'status': 'allowed', 'distance': round(dist, 2), 'time': datetime.now().strftime('%H:%M'), 'message': f'✅ Access Granted!'})
     return jsonify({'status': 'denied', 'message': f'❌ Too far! ({int(dist)}m)'}), 403
 
+@app.route('/admin')
+@login_required #<-- Uncomment this when your login system is active
+def admin_dashboard():
+    users = User.query.all()
+    student_data = []
+    
+    today = datetime.utcnow().date()
+    start_of_week = today - timedelta(days=today.weekday())
+
+    # Variables for top cards
+    total_students = len(users)
+    under_quota_count = 0
+    total_weekly_hours = 0
+
+    for student in users:
+        logs = Attendance.query.filter(
+            Attendance.user_id == student.id, 
+            Attendance.date >= start_of_week
+        ).all()
+        
+        total_hrs = sum(log.valid_hours for log in logs)
+        total_weekly_hours += total_hrs
+        
+        if total_hrs < 15:
+            under_quota_count += 1
+            
+        student_data.append({
+            'username': student.username,
+            'hours': round(total_hrs, 2),
+            'logs_count': len(logs)
+        })
+
+    avg_hours = round(total_weekly_hours / total_students, 1) if total_students > 0 else 0
+
+    return render_template('admin.html', 
+                           students=student_data, 
+                           total_students=total_students, 
+                           under_quota=under_quota_count,
+                           avg_hours=avg_hours)
+
 @app.route('/api/attendance', methods=['GET'])
 @login_required
 def get_attendance():
